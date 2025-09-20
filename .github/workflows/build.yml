@@ -1,0 +1,62 @@
+name: Build Dashboard Packages
+
+on:
+  push:
+    branches: [ main ]   # push 到 main 分支时触发
+  workflow_dispatch:      # 手动触发
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, macos-13, macos-14]  # Win, Mac Intel, Mac ARM
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Download MongoDB
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            curl -L -o mongodb.zip https://fastdl.mongodb.org/windows/mongodb-windows-x86_64-6.0.18.zip
+            tar -xf mongodb.zip
+            mkdir -p mongodb/bin
+            cp mongodb-windows-x86_64-6.0.18/bin/mongod.exe mongodb/bin/
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            if [[ "$(uname -m)" == "x86_64" ]]; then
+              curl -L -o mongodb.tgz https://fastdl.mongodb.org/osx/mongodb-macos-x86_64-6.0.18.tgz
+              tar -xzf mongodb.tgz
+              mkdir -p mongodb/bin
+              cp mongodb-macos-x86_64-6.0.18/bin/mongod mongodb/bin/
+            else
+              curl -L -o mongodb.tgz https://fastdl.mongodb.org/osx/mongodb-macos-arm64-6.0.18.tgz
+              tar -xzf mongodb.tgz
+              mkdir -p mongodb/bin
+              cp mongodb-macos-arm64-6.0.18/bin/mongod mongodb/bin/
+            fi
+            chmod +x mongodb/bin/mongod
+          fi
+
+      - name: Build executable
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            pyinstaller --onefile --windowed run_app.py --add-binary "mongodb/bin/mongod.exe;mongodb/bin"
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            pyinstaller --onefile --windowed run_app.py --add-binary "mongodb/bin/mongod:mongodb/bin"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}-build
+          path: dist/*
