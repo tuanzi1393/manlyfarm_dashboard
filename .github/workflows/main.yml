@@ -1,0 +1,91 @@
+name: Build Dashboard Packages
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-2022, macos-13, macos-14]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Download MongoDB
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            echo "🔽 Downloading MongoDB for Windows..."
+            curl -L -o mongodb.zip https://fastdl.mongodb.org/windows/mongodb-windows-x86_64-6.0.18.zip
+            powershell -Command "Expand-Archive mongodb.zip -DestinationPath ."
+            mkdir -p mongodb/bin
+            echo "🔍 Searching for mongod.exe..."
+            powershell -Command "Get-ChildItem -Recurse -Filter mongod.exe | ForEach-Object { Write-Output 'Found mongod.exe at:' $_.FullName }"
+            powershell -Command "$mongodPath = (Get-ChildItem -Recurse -Filter mongod.exe | Select-Object -First 1).FullName; Copy-Item -Path $mongodPath -Destination mongodb/bin/"
+            echo "📂 Files inside mongodb/bin:"
+            dir mongodb\\bin
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            echo "🔽 Downloading MongoDB for macOS..."
+            if [[ "$(uname -m)" == "x86_64" ]]; then
+              curl -L -o mongodb.tgz https://fastdl.mongodb.org/osx/mongodb-macos-x86_64-6.0.18.tgz
+            else
+              curl -L -o mongodb.tgz https://fastdl.mongodb.org/osx/mongodb-macos-arm64-6.0.18.tgz
+            fi
+            tar -xzf mongodb.tgz
+            mkdir -p mongodb/bin
+            cp */bin/mongod mongodb/bin/ || echo "⚠️ mongod not found"
+            chmod +x mongodb/bin/mongod || true
+            echo "📂 Files inside mongodb/bin:"
+            ls -l mongodb/bin
+          fi
+
+      - name: Build executable
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            pyinstaller --onefile --windowed run_app.py --add-binary "mongodb/bin/mongod.exe;mongodb/bin"
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            pyinstaller --onefile --windowed run_app.py --add-binary "mongodb/bin/mongod:mongodb/bin"
+          fi
+
+      - name: Prepare package
+        run: |
+          mkdir package
+          cp -r dist/* package/
+          cp -r charts package/
+          cp -r services package/
+          cp app.py package/
+          cp run_app.py package/
+          cp requirements.txt package/
+          mkdir -p package/mongodb/data
+
+      - name: Zip package
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            powershell -Command "Compress-Archive -Path package/* -DestinationPath ManlyFarm_Windows.zip"
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            if [[ "$(uname -m)" == "x86_64" ]]; then
+              zip -r ManlyFarm_Mac_Intel.zip package
+            else
+              zip -r ManlyFarm_Mac_ARM.zip package
+            fi
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}-package
+          path: "*.zip"
