@@ -29,22 +29,19 @@ jobs:
         run: |
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             curl -L -o mongodb.zip https://fastdl.mongodb.org/windows/mongodb-windows-x86_64-6.0.18.zip
-            tar -xf mongodb.zip
+            powershell -Command "Expand-Archive mongodb.zip -DestinationPath ."
             mkdir -p mongodb/bin
-            cp mongodb-windows-x86_64-6.0.18/bin/mongod.exe mongodb/bin/
+            cp */bin/mongod.exe mongodb/bin/ || echo "mongod.exe not found"
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
             if [[ "$(uname -m)" == "x86_64" ]]; then
               curl -L -o mongodb.tgz https://fastdl.mongodb.org/osx/mongodb-macos-x86_64-6.0.18.tgz
-              tar -xzf mongodb.tgz
-              mkdir -p mongodb/bin
-              cp mongodb-macos-x86_64-6.0.18/bin/mongod mongodb/bin/
             else
               curl -L -o mongodb.tgz https://fastdl.mongodb.org/osx/mongodb-macos-arm64-6.0.18.tgz
-              tar -xzf mongodb.tgz
-              mkdir -p mongodb/bin
-              cp mongodb-macos-arm64-6.0.18/bin/mongod mongodb/bin/
             fi
-            chmod +x mongodb/bin/mongod
+            tar -xzf mongodb.tgz
+            mkdir -p mongodb/bin
+            cp */bin/mongod mongodb/bin/ || echo "mongod not found"
+            chmod +x mongodb/bin/mongod || true
           fi
 
       - name: Build executable
@@ -55,8 +52,55 @@ jobs:
             pyinstaller --onefile --windowed run_app.py --add-binary "mongodb/bin/mongod:mongodb/bin"
           fi
 
+      - name: Prepare package
+        run: |
+          mkdir package
+          cp -r dist/* package/
+          cp -r charts package/
+          cp -r services package/
+          cp app.py package/
+          cp run_app.py package/
+          cp requirements.txt package/
+          # 放入 README.txt
+cat > package/README.txt << 'EOF'
+
+====================================
+ ManlyFarm Dashboard Instructions (English)
+====================================
+1. Windows Users
+   - Unzip `ManlyFarm_Windows.zip`
+   - Double-click `run_app.exe`
+   - Wait 5–10s → Browser opens at http://localhost:8501
+
+2. Mac Intel Users (x86_64)
+   - Unzip `ManlyFarm_Mac_Intel.zip`
+   - Double-click `run_app.app`
+   - If “unidentified developer” appears → right-click → Open
+
+3. Mac ARM Users (M1/M2)
+   - Unzip `ManlyFarm_Mac_ARM.zip`
+   - Double-click `run_app.app`
+   - If “unidentified developer” appears → right-click → Open
+
+Notes:
+- Keep folder structure intact
+- Do not delete `mongodb/data/`
+EOF
+
+      - name: Zip package
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            powershell -Command "Compress-Archive -Path package/* -DestinationPath ManlyFarm_Windows.zip"
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            if [[ "$(uname -m)" == "x86_64" ]]; then
+              zip -r ManlyFarm_Mac_Intel.zip package
+            else
+              zip -r ManlyFarm_Mac_ARM.zip package
+            fi
+          fi
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.os }}-build
-          path: dist/*
+          name: ${{ matrix.os }}-package
+          path: "*.zip"
