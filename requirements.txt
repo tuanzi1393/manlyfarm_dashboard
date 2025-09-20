@@ -1,0 +1,9 @@
+pandas
+numpy
+pymongo
+plotly
+streamlit
+openpyxl
+faker
+prophet
+pyinstaller
